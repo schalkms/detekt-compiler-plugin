@@ -1,31 +1,26 @@
 package io.github.detekt.internal
 
-import io.gitlab.arturbosch.detekt.api.Detektion
-import io.gitlab.arturbosch.detekt.core.DetektResult
-import io.gitlab.arturbosch.detekt.core.Detektor
-import io.gitlab.arturbosch.detekt.core.FileProcessorLocator
-import io.gitlab.arturbosch.detekt.core.ProcessingSettings
-import io.gitlab.arturbosch.detekt.core.RuleSetLocator
+import io.github.detekt.tooling.api.DetektProvider
+import io.github.detekt.tooling.api.spec.ProcessingSpec
+import io.github.detekt.tooling.api.spec.RulesSpec
+import io.gitlab.arturbosch.detekt.api.UnstableApi
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.resolve.BindingContext
 
-class DetektService(
-    private val log: MessageCollector,
-    private val settings: ProcessingSettings
-) {
+class DetektService(private val log: MessageCollector) {
 
-    fun analyze(files: Collection<KtFile>, context: BindingContext): Detektion {
-        val providers = RuleSetLocator(settings).load()
-        log.info("Loaded rule sets: ${providers.joinToString { it.ruleSetId }}")
-        val processors = FileProcessorLocator(settings).load()
-        val engine = Detektor(settings, providers, processors)
-
-        processors.forEach { it.onStart(files.toList()) }
-        val rawResult = engine.run(files, context)
-        val result = DetektResult(rawResult.toSortedMap())
-        processors.forEach { it.onFinish(files.toList(), result) }
+    @OptIn(UnstableApi::class)
+    fun analyze(files: Collection<KtFile>, context: BindingContext) {
+        val spec = ProcessingSpec {
+            rules {
+                maxIssuePolicy = RulesSpec.MaxIssuePolicy.AllowAny // TODO: why does detekt not catch this?
+            }
+        }
+        val detekt = DetektProvider.load().get(spec)
+        val result = detekt.run(files, context)
         log.info("${files.size} files analyzed")
-        return result
+        result.container?.let { log.reportFindings(it) }
+        result.error?.let { throw it }
     }
 }
